@@ -46,7 +46,7 @@ while IFS= read -r taxon; do
 	for i in "${!INPUT_FILES[@]}"; do
         	fasta_file="${INPUT_FILES[$i]}"
         	gene_length="${GENE_LENGTHS[$i]}"
-        	seq=$(seqkit grep -r -n -p "$taxon" "$fasta_file" 2>/dev/null | seqkit seq -s -w 0)
+        	seq=$(seqkit grep -r -n -p "$taxon" "$fasta_file" 2>/dev/null | seqkit seq -s -u -w 0)
 		if [ -n "$seq" ]; then
             		concat_seq="${concat_seq}${seq}"
         	else
