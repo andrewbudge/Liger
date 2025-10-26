@@ -1,13 +1,19 @@
-# Liger - A smart concatenation tool to create supermatrices 
+# Liger - a smart concatenation tool to create supermatrices 
 ## Overview
 Liger is a smart concatenation tool that can process an unlimited number of FASTA files and create a supermatrix with accompanying partitions. The key feature of Liger is smart matching of FASTA headers. Users provide a list of taxa to include with canonical headers (i.e., the headers you wish to use for the final supermatrix). Liger takes this list and matches headers across all input files. This allows users to preserve metadata without having to manually alter headers in the input files.
 
 ## Installation and Dependencies
 
 Liger is depend on Seqkit. Be sure to have it installed before using Liger. Seqkit is open source and available [here](https://github.com/shenwei356/seqkit). 
+```bash
+# Download liger
+wget https://raw.githubusercontent.com/andrewbudge/Liger/main/liger
+chmod +x liger
+sudo mv liger /usr/local/bin/
 
-
-
+# Verify
+liger
+```
 ## Usage
 ```bash
 liger [INPUT FASTA FILES] [TAXA LIST] > [SUPERMATRIX] 2> [PARTITONS]
