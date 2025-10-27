@@ -4,7 +4,7 @@ Liger is a smart concatenation tool that can process an unlimited number of FAST
 
 ## Installation and Dependencies
 
-Liger is depend on Seqkit. Be sure to have it installed before using Liger. Seqkit is open source and available [here](https://github.com/shenwei356/seqkit). 
+The bash version of liger is depend on Seqkit. Be sure to have it installed before using Liger. Seqkit is open source and available [here](https://github.com/shenwei356/seqkit). 
 ```bash
 # Download liger
 wget https://raw.githubusercontent.com/andrewbudge/Liger/main/liger
@@ -14,11 +14,22 @@ sudo mv liger /usr/local/bin/
 # Verify
 liger
 ```
+There is also a faster version of liger written in go. It can be downloaded an complied as follows:
+```
+# Download the file
+wget https://raw.githubusercontent.com/andrewbudge/Liger/main/liger.go
+
+# Compile it
+go build -o liger liger.go
+
+# Move to PATH (optional)
+sudo mv liger /usr/local/bin/
+```
+
 ## Usage
 ```bash
 liger [INPUT FASTA FILES] [TAXA LIST] > [SUPERMATRIX] 2> [PARTITONS]
 ```
-
 - **Input**: Pre-aligned gene files + taxa list (one name per line)
 - **Output**: Supermatrix in FASTA format (stdout) + NEXUS partitions (stderr)
 - **Missing taxa**: Automatically filled with N's
