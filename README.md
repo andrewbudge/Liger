@@ -14,7 +14,7 @@ sudo mv liger /usr/local/bin/
 # Verify
 liger
 ```
-There is also a faster version of liger written in go. It can be downloaded an complied as follows:
+There is also a faster version of Liger written in go. Go 1.21 or higher is reqiured. It can be downloaded an complied as follows:
 ```
 # Download the file
 wget https://raw.githubusercontent.com/andrewbudge/Liger/main/liger.go
