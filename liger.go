@@ -25,6 +25,7 @@ func parseFasta(filename string) (map[string]string, int, error) {
 	var currentHeader string
 	var currentSeq strings.Builder
 	maxLen := 0
+	expectedLength := -1
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -34,6 +35,13 @@ func parseFasta(filename string) (map[string]string, int, error) {
 			// Save previous sequence
 			if currentHeader != "" {
 				seq := strings.ToUpper(currentSeq.String())
+				if expectedLength == -1 {
+					expectedLength = len(seq)
+				} else {
+					if len(seq) != expectedLength{
+						return nil, 0, fmt.Errorf("Error: unequal sequence length found in %s", filename)
+					}
+				}
 				sequences[currentHeader] = seq
 				if len(seq) > maxLen {
 					maxLen = len(seq)
@@ -51,6 +59,13 @@ func parseFasta(filename string) (map[string]string, int, error) {
 	// Save last sequence
 	if currentHeader != "" {
 		seq := strings.ToUpper(currentSeq.String())
+			if expectedLength == -1 {
+					expectedLength = len(seq)
+				} else {
+					if len(seq) != expectedLength{
+						return nil, 0, fmt.Errorf("Error: unequal sequence length found in %s", filename)
+					}
+				}
 		sequences[currentHeader] = seq
 		if len(seq) > maxLen {
 			maxLen = len(seq)
