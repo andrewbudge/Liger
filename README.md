@@ -33,8 +33,6 @@ liger [INPUT FASTA FILES] [TAXA LIST] > [SUPERMATRIX] 2> [PARTITONS]
 - **Output**: Supermatrix in FASTA format (stdout) + NEXUS partitions (stderr)
 - **Missing taxa**: Automatically filled with N's
 
-**WARNING: Liger will not check if input files are aligned!!! Be sure to check files before putting them into Liger.** 
-
 ## How Matching Works
 
 Liger searches for your taxon name anywhere in the FASTA header.
@@ -106,10 +104,3 @@ ATCGATCGATCGTACGTACGTACG
 GCTAGCTAGCTANNNNNNNNNNNN
 ```
 
-### Test Matching
-```bash
-$ seqkit grep -r -n -p "Mus mus" COX1.fasta
->AB123.1 Mus mus COX1 gene, partial cds
-ATCGATCGATCG
-```    
-Should return exactly one sequence per file.
