@@ -1,23 +1,30 @@
 # Liger - a smart concatenation tool to create supermatrices 
 ## Overview
-Liger is a smart concatenation tool that can process an unlimited number of FASTA files and create a supermatrix with accompanying partitions. The key feature of Liger is smart matching of FASTA headers. Users provide a list of taxa to include with canonical headers (i.e., the headers you wish to use for the final supermatrix). Liger takes this list and matches headers across all input files. This allows users to preserve metadata without having to manually alter headers in the input files.
+Liger is a fast, composable, smart concatenation tool that can process an unlimited number of FASTA files and create a supermatrix with accompanying partitions. The key feature of Liger is smart matching of FASTA headers. Users provide a list of taxa to include with canonical headers (i.e., the headers you wish to use for the final supermatrix). Liger takes this list and matches headers across all input files. This allows users to preserve metadata without having to manually alter headers in the input files.
+
+## Performance
+
+Liger is built for speed. Benchmarked against FASconCAT v1.11 on a dataset of 13 genes, 61 taxa, 43,363 bp:
+
+| Tool | Time |
+|------|------|
+| Liger | 95ms |
+| FASconCAT (Perl) | 967ms |
+
+**Liger is ~10x faster** while maintaining the same functionality plus fuzzy matching.
+
+**Test System:**
+- CPU: Intel Ultra 5 125U (14 cores) @ 4.3GHz
+- RAM: 16GB
+- OS: Ubuntu 24.04.3 LTS
 
 ## Installation and Dependencies
 
-The bash version of liger is depend on Seqkit. Be sure to have it installed before using Liger. Seqkit is open source and available [here](https://github.com/shenwei356/seqkit). 
-```bash
-# Download liger
-wget https://raw.githubusercontent.com/andrewbudge/Liger/main/liger
-chmod +x liger
-sudo mv liger /usr/local/bin/
-
-# Verify
-liger
-```
-There is also a faster version of Liger written in go. Go 1.21 or higher is reqiured. It can be downloaded an complied as follows:
+Liger written is written in go. Go 1.21 or higher is reqiured. No other dependencies are required. It can be downloaded and complied as follows:
 ```
 # Download the file
 wget https://raw.githubusercontent.com/andrewbudge/Liger/refs/heads/main/liger.go
+
 # Compile it
 go build -o liger liger.go
 
