@@ -1,3 +1,8 @@
+// Liger: A smart concatination tool
+// version: 0.2.0
+// written and developed by Andrew Budge
+
+
 package main
 
 import (
@@ -5,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -28,6 +34,12 @@ func parseFasta(filename string) (map[string]string, int, error) {
 	expectedLength := -1
 
 	scanner := bufio.NewScanner(file)
+
+	// Future proof reading large seqs on a single line
+	const maxCap = 1024 * 1024 * 1024
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, maxCap)
+
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		
@@ -76,14 +88,18 @@ func parseFasta(filename string) (map[string]string, int, error) {
 }
 
 // findSequenceByPattern searches for a taxon name pattern in headers (like grep -p)
-func findSequenceByPattern(sequences map[string]string, pattern string) (string, bool) {
+func findSequenceByPattern(sequences map[string]string, pattern string, claimed map[string]bool) (string, string, bool) {
+	normalizedPattern := strings.ToLower(pattern)
 	for header, seq := range sequences {
-		// Case-insensitive substring match, like grep
-		if strings.Contains(strings.ToLower(header), strings.ToLower(pattern)) {
-			return seq, true
+		if claimed[header] {
+			continue
+		}
+		normalizedHeader := strings.ToLower(header)
+		if strings.Contains(normalizedHeader, normalizedPattern) {
+			return seq, header, true
 		}
 	}
-	return "", false
+	return "", "", false
 }
 
 func loadTaxaList(filename string) ([]string, error) {
@@ -145,20 +161,38 @@ func main() {
 		missingData[i] = strings.Repeat("N", gene.Length)
 	}
 
+	// Sort taxa list by length, for hierarchical matching
+	sort.SliceStable(taxa, func(i,j int) bool {
+		return len(taxa[i]) > len(taxa[j])
+	})
+
+	// claim seqs to prevent double assignment of seqs to taxa (very bad!)
+	claimed := make([]map[string]bool, len(genes))
+	for i := range claimed {
+		claimed[i] = make(map[string]bool)
+	}
+
 	// Generate supermatrix
+	supermatrix := make(map[string]string)
+
 	for _, taxon := range taxa {
 		var concat strings.Builder
 		
 		for i, gene := range genes {
-			// Search for taxon pattern in headers (like grep -p)
-			if seq, found := findSequenceByPattern(gene.Sequences, taxon); found {
+			if seq, header, found := findSequenceByPattern(gene.Sequences, taxon, claimed[i]); found {
 				concat.WriteString(seq)
+				claimed[i][header] = true
 			} else {
 				concat.WriteString(missingData[i])
 			}
 		}
 		
-		fmt.Printf(">%s\n%s\n", taxon, concat.String())
+		supermatrix[taxon] = concat.String()
+	}
+
+	sort.Strings(taxa)
+	for _, taxon := range taxa {
+		fmt.Printf(">%s\n%s\n", taxon, supermatrix[taxon])
 	}
 
 	// Print partition file to stderr
