@@ -8,10 +8,10 @@ Liger is built for speed. Benchmarked against FASconCAT v1.11 on a dataset of 13
 
 | Tool | Time |
 |------|------|
-| Liger | 95ms |
-| FASconCAT (Perl) | 967ms |
+| Liger | ~45ms |
+| FASconCAT (Perl) | ~965ms |
 
-**Liger is ~10x faster** while maintaining the same functionality plus fuzzy matching.
+**Liger is ~20x faster** while maintaining the same functionality plus fuzzy matching.
 
 **Test System:**
 - CPU: Intel Ultra 5 125U (14 cores) @ 4.3GHz
