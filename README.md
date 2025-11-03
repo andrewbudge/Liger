@@ -20,7 +20,7 @@ Liger is built for speed. Benchmarked against FASconCAT v1.11 on a dataset of 13
 
 ## Installation and Dependencies
 
-Liger written is written in go. Go 1.21 or higher is reqiured. No other dependencies are required. It can be downloaded and complied as follows:
+Liger written is written in go. Go 1.21 or higher is required. No other dependencies are required. It can be downloaded and complied as follows:
 ```
 # Download the file
 wget https://raw.githubusercontent.com/andrewbudge/Liger/refs/heads/main/liger.go
