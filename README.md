@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="liger_logo_test.svg" width="400">
+</div>
+
 # Liger - a smart concatenation tool to create supermatrices 
 ## Overview
 Liger is a fast, composable, smart concatenation tool that can process an unlimited number of FASTA files and create a supermatrix with accompanying partitions. The key feature of Liger is smart matching of FASTA headers. Users provide a list of taxa to include with canonical headers (i.e., the headers you wish to use for the final supermatrix). Liger takes this list and matches headers across all input files. This allows users to preserve metadata without having to alter headers in the input files.
