@@ -1,11 +1,12 @@
 # Binary
 liger
 
+# Test directory
+test/
+
 # Test output files
 *.fasta
 *.nex
-test/*.fasta
-test/*.nex
 
 # Go build artifacts
 *.exe
