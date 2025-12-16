@@ -2,11 +2,11 @@
 // version: 0.2.0
 // written and developed by Andrew Budge
 
-
 package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -42,7 +42,7 @@ func parseFasta(filename string) (map[string]string, int, error) {
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		
+
 		if strings.HasPrefix(line, ">") {
 			// Save previous sequence
 			if currentHeader != "" {
@@ -50,7 +50,7 @@ func parseFasta(filename string) (map[string]string, int, error) {
 				if expectedLength == -1 {
 					expectedLength = len(seq)
 				} else {
-					if len(seq) != expectedLength{
+					if len(seq) != expectedLength {
 						return nil, 0, fmt.Errorf("Error: unequal sequence length found in %s", filename)
 					}
 				}
@@ -59,7 +59,7 @@ func parseFasta(filename string) (map[string]string, int, error) {
 					maxLen = len(seq)
 				}
 			}
-			
+
 			// Store the FULL header (everything after >)
 			currentHeader = line[1:]
 			currentSeq.Reset()
@@ -71,13 +71,13 @@ func parseFasta(filename string) (map[string]string, int, error) {
 	// Save last sequence
 	if currentHeader != "" {
 		seq := strings.ToUpper(currentSeq.String())
-			if expectedLength == -1 {
-					expectedLength = len(seq)
-				} else {
-					if len(seq) != expectedLength{
-						return nil, 0, fmt.Errorf("Error: unequal sequence length found in %s", filename)
-					}
-				}
+		if expectedLength == -1 {
+			expectedLength = len(seq)
+		} else {
+			if len(seq) != expectedLength {
+				return nil, 0, fmt.Errorf("Error: unequal sequence length found in %s", filename)
+			}
+		}
 		sequences[currentHeader] = seq
 		if len(seq) > maxLen {
 			maxLen = len(seq)
@@ -121,15 +121,78 @@ func loadTaxaList(filename string) ([]string, error) {
 	return taxa, scanner.Err()
 }
 
+func printNexus(taxa []string, supermatrix map[string]string, genes []Gene, fillChar string) {
+	totalLen := 0
+	for _, gene := range genes {
+		totalLen += gene.Length
+	}
+
+	maxTaxonLen := 0
+	for _, taxon := range taxa {
+		if len(taxon) > maxTaxonLen {
+			maxTaxonLen = len(taxon)
+		}
+	}
+
+	fmt.Println("#NEXUS")
+	fmt.Println()
+
+	fmt.Println("BEGIN TAXA;")
+	fmt.Printf("    DIMENSIONS NTAX=%d;\n", len(taxa))
+	fmt.Println("    TAXLABELS")
+	for _, taxon := range taxa {
+		fmt.Printf("        %s\n", taxon)
+	}
+	fmt.Println("    ;")
+	fmt.Println("END;")
+	fmt.Println()
+
+	fmt.Println("BEGIN CHARACTERS;")
+	fmt.Printf("    DIMENSIONS NCHAR=%d;\n", totalLen)
+	fmt.Printf("    FORMAT DATATYPE=DNA MISSING=%s GAP=-;\n", fillChar)
+	fmt.Println("    MATRIX")
+	for _, taxon := range taxa {
+		fmt.Printf("        %-*s  %s\n", maxTaxonLen, taxon, supermatrix[taxon])
+	}
+	fmt.Println("    ;")
+	fmt.Println("END;")
+	fmt.Println()
+
+	fmt.Println("BEGIN SETS;")
+	currentPos := 1
+	for _, gene := range genes {
+		endPos := currentPos + gene.Length - 1
+		fmt.Printf("    CHARSET %s = %d-%d;\n", gene.Name, currentPos, endPos)
+		currentPos = endPos + 1
+	}
+	fmt.Println("END;")
+}
+
 func main() {
-	if len(os.Args) < 3 {
-		fmt.Fprintln(os.Stderr, "Usage: liger [INPUT FILES] [TAXA LIST]")
-		fmt.Fprintln(os.Stderr, "Output: Supermatrix to stdout, partition file to stderr")
+
+	formatFlag := flag.String("f", "fasta", "Output format: fasta or nexus")
+	missingCharFlag := flag.String("m", "N", "Character for missing data")
+
+	flag.Usage = func() {
+		fmt.Fprintln(os.Stderr, "Usage: liger [FLAGS] [TAXA LIST] [INPUT FILES]")
+		fmt.Fprintln(os.Stderr, "\nFlags:")
+		fmt.Fprintln(os.Stderr, "  -f | choose output format fasta or nexus (default fasta)")
+		fmt.Fprintln(os.Stderr, "  -m | missing symbol (default N)")
+		fmt.Fprintln(os.Stderr, "\nOutput:")
+		fmt.Fprintln(os.Stderr, "  FASTA mode: Supermatrix to stdout, partitions to stderr")
+		fmt.Fprintln(os.Stderr, "  NEXUS mode: Complete NEXUS file to stdout")
+	}
+
+	flag.Parse()
+
+	args := flag.Args()
+	if len(args) < 2 {
+		flag.Usage()
 		os.Exit(1)
 	}
 
-	inputFiles := os.Args[1 : len(os.Args)-1]
-	taxaListFile := os.Args[len(os.Args)-1]
+	taxaListFile := args[0]
+	inputFiles := args[1:]
 
 	// Load taxa list
 	taxa, err := loadTaxaList(taxaListFile)
@@ -158,11 +221,11 @@ func main() {
 	// Pre-generate missing data strings
 	missingData := make(map[int]string)
 	for i, gene := range genes {
-		missingData[i] = strings.Repeat("N", gene.Length)
+		missingData[i] = strings.Repeat(*missingCharFlag, gene.Length)
 	}
 
 	// Sort taxa list by length, for hierarchical matching
-	sort.SliceStable(taxa, func(i,j int) bool {
+	sort.SliceStable(taxa, func(i, j int) bool {
 		return len(taxa[i]) > len(taxa[j])
 	})
 
@@ -177,7 +240,7 @@ func main() {
 
 	for _, taxon := range taxa {
 		var concat strings.Builder
-		
+
 		for i, gene := range genes {
 			if seq, header, found := findSequenceByPattern(gene.Sequences, taxon, claimed[i]); found {
 				concat.WriteString(seq)
@@ -186,25 +249,32 @@ func main() {
 				concat.WriteString(missingData[i])
 			}
 		}
-		
+
 		supermatrix[taxon] = concat.String()
 	}
 
 	sort.Strings(taxa)
-	for _, taxon := range taxa {
-		fmt.Printf(">%s\n%s\n", taxon, supermatrix[taxon])
-	}
 
-	// Print partition file to stderr
-	fmt.Fprintln(os.Stderr, "#NEXUS")
-	fmt.Fprintln(os.Stderr, "begin sets;")
-	
-	currentPos := 1
-	for _, gene := range genes {
-		endPos := currentPos + gene.Length - 1
-		fmt.Fprintf(os.Stderr, "  charset %s = %d-%d;\n", gene.Name, currentPos, endPos)
-		currentPos = endPos + 1
+	if *formatFlag == "nexus" {
+		printNexus(taxa, supermatrix, genes, *missingCharFlag)
+	} else if *formatFlag == "fasta" {
+		for _, taxon := range taxa {
+			fmt.Printf(">%s\n%s\n", taxon, supermatrix[taxon])
+		}
+
+		fmt.Fprintln(os.Stderr, "#NEXUS")
+		fmt.Fprintln(os.Stderr, "begin sets;")
+
+		currentPos := 1
+		for _, gene := range genes {
+			endPos := currentPos + gene.Length - 1
+			fmt.Fprintf(os.Stderr, "  charset %s = %d-%d;\n", gene.Name, currentPos, endPos)
+			currentPos = endPos + 1
+		}
+
+		fmt.Fprintln(os.Stderr, "end;")
+	} else {
+		fmt.Fprintf(os.Stderr, "Error: invalid format '%s'. Use 'fasta' or 'nexus'\n", *formatFlag)
+		os.Exit(1)
 	}
-	
-	fmt.Fprintln(os.Stderr, "end;")
 }

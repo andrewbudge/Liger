@@ -1,0 +1,23 @@
+# Binary
+liger
+
+# Test output files
+*.fasta
+*.nex
+test/*.fasta
+test/*.nex
+
+# Go build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

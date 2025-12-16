@@ -38,17 +38,24 @@ sudo mv liger /usr/local/bin/
 
 ## Usage
 ```bash
-liger [INPUT FASTA FILES] [TAXA LIST] > [SUPERMATRIX] 2> [PARTITONS]
+liger [FLAGS] [TAXA LIST] [INPUT FASTA FILES] > [OUTPUT]
 ```
-- **Input**: Pre-aligned gene files + taxa list (one name per line)
-- **Output**: Supermatrix in FASTA format (stdout) + NEXUS partitions (stderr)
-- **Missing taxa**: Automatically filled with N's
+
+### Flags
+- `-f` Output format: `fasta` (default) or `nexus`
+- `-m` Character for missing data (default: `N`)
+
+### Input/Output
+- **Input**: Taxa list (one name per line) + pre-aligned gene files
+- **Output (FASTA mode)**: Supermatrix to stdout, NEXUS partitions to stderr
+- **Output (NEXUS mode)**: Complete NEXUS file to stdout (includes supermatrix + partitions)
+- **Missing taxa**: Automatically filled with specified missing character
 
 ## How Matching Works
 
 Liger searches for your taxon name anywhere in the FASTA header.
 
-### Basic Example
+### Basic Example (FASTA output)
 ```bash
 $ cat COX1.fasta
 >AB123.1 Mus mus COX1 gene, partial cds
@@ -71,15 +78,15 @@ Mus mus
 Rattus rat
 Ovis sheep
 
-$ liger COX1.fasta ND2.fasta taxa.txt > matrix.fasta 2> parts.nex
+$ liger taxa.txt COX1.fasta ND2.fasta > matrix.fasta 2> parts.nex
 
 $ cat matrix.fasta
 >Mus mus
 ATCGATCGATCGTACGTACGTACG
->Rattus rat
-GCTAGCTAGCTAATATATATATAT
 >Ovis sheep
 CGATCGATCGATGCGCGCGCGCGC
+>Rattus rat
+GCTAGCTAGCTAATATATATATAT
 
 $ cat parts.nex
 #NEXUS
@@ -89,7 +96,39 @@ begin sets;
 end;
 ```
 
-### Missing Data
+### NEXUS Output Example
+```bash
+$ liger -f nexus taxa.txt COX1.fasta ND2.fasta > output.nex
+
+$ cat output.nex
+#NEXUS
+
+BEGIN TAXA;
+    DIMENSIONS NTAX=3;
+    TAXLABELS
+        Mus mus
+        Ovis sheep
+        Rattus rat
+    ;
+END;
+
+BEGIN CHARACTERS;
+    DIMENSIONS NCHAR=24;
+    FORMAT DATATYPE=DNA MISSING=N GAP=-;
+    MATRIX
+        Mus mus     ATCGATCGATCGTACGTACGTACG
+        Ovis sheep  CGATCGATCGATGCGCGCGCGCGC
+        Rattus rat  GCTAGCTAGCTAATATATATATAT
+    ;
+END;
+
+BEGIN SETS;
+    CHARSET COX1 = 1-12;
+    CHARSET ND2 = 13-24;
+END;
+```
+
+### Missing Data Example
 ```bash
 $ cat COX1.fasta
 >AB123.1 Mus mus COX1
@@ -100,18 +139,30 @@ GCTAGCTAGCTA
 $ cat ND2.fasta
 >XM456.1 Mus mus ND2
 TACGTACGTACG
-# Rattus rat missing!
+# Ovis sheep missing from ND2!
 
 $ cat taxa.txt
 Mus mus
 Rattus rat
+Ovis sheep
 
-$ liger COX1.fasta ND2.fasta taxa.txt > matrix.fasta 2>/dev/null
-
-$ cat matrix.fasta
+$ liger taxa.txt COX1.fasta ND2.fasta 2>/dev/null
 >Mus mus
 ATCGATCGATCGTACGTACGTACG
+>Ovis sheep
+CGATCGATCGATNNNNNNNNNNNN
 >Rattus rat
-GCTAGCTAGCTANNNNNNNNNNNN
+GCTAGCTAGCTAATATATATATAT
+```
+
+### Custom Missing Character
+```bash
+$ liger -m ? taxa.txt COX1.fasta ND2.fasta 2>/dev/null
+>Mus mus
+ATCGATCGATCGTACGTACGTACG
+>Ovis sheep
+CGATCGATCGAT????????????
+>Rattus rat
+GCTAGCTAGCTAATATATATATAT
 ```
 
