@@ -1,20 +1,8 @@
-# Binary
-liger
-
-# Test directory
-test/
+# Rust build artifacts
+/target
 
 # Test output files
-*.fasta
 *.nex
-
-# Go build artifacts
-*.exe
-*.dll
-*.so
-*.dylib
-*.test
-*.out
 
 # IDE
 .vscode/

@@ -2,167 +2,137 @@
   <img src="liger_logo_test.svg" width="400">
 </div>
 
-# Liger - a smart concatenation tool to create supermatrices 
+# Liger - a fast, smart supermatrix concatenation tool
+
 ## Overview
-Liger is a fast, composable, smart concatenation tool that can process an unlimited number of FASTA files and create a supermatrix with accompanying partitions. The key feature of Liger is smart matching of FASTA headers. Users provide a list of taxa to include with canonical headers (i.e., the headers you wish to use for the final supermatrix). Liger takes this list and matches headers across all input files. This allows users to preserve metadata without having to alter headers in the input files.
+
+Liger is a fast, composable concatenation tool that creates supermatrices from multiple FASTA alignments. It runs in two modes:
+
+- **Exact match (default):** headers must match exactly across files, like FASconCAT and AMAS.
+- **Smart match (`-a alias.txt`):** pass an alias list of clean output names that get matched to messy input headers via case-insensitive substring search. Underscores in aliases match spaces in headers, so `Mus_musculus` finds `AB123.1 Mus musculus COX1 gene, partial cds`. Longer aliases match first to prevent partial collisions. The alias list doubles as a rename map — input headers stay messy, output gets clean names. Requires `-l` for a provenance TSV that records exactly which original header matched each alias.
+
+Liger auto-detects DNA vs amino acid data per gene and adjusts missing characters and partition labels accordingly. FASTA output goes to stdout, partition boundaries to stderr in RAxML/IQ-TREE format by default. NEXUS bundles everything into one file.
+
+Liger is also available as the `concat` subcommand in [phylo](https://github.com/andrewbudge/phylo).
 
 ## Performance
 
-Liger is built for speed. Benchmarked against FASconCAT v1.11 on a dataset of 13 genes, 61 taxa, 43,363 bp:
-
-| Tool | Time |
-|------|------|
-| Liger | ~45ms |
-| FASconCAT (Perl) | ~965ms |
-
-**Liger is ~20x faster** while maintaining the same functionality plus fuzzy matching.
+| Scale | Taxa x Genes | Liger | FASconCAT-G | Speedup |
+|---|---|---|---|---|
+| Small | 100 x 20 | 19ms | 12s | **637x** |
+| Medium | 300 x 50 | 146ms | 4 min | **1,646x** |
+| Large | 1,000 x 30 | 225ms | 5.4 min | **1,438x** |
+| Mega | 4,000 x 30 | 968ms | crash | - |
 
 **Test System:**
 - CPU: Intel Ultra 5 125U (14 cores) @ 4.3GHz
 - RAM: 16GB
 - OS: Ubuntu 24.04.3 LTS
 
-## Installation and Dependencies
+## Install
 
-Liger written is written in go. Go 1.21 or higher is required. No other dependencies are required. It can be downloaded and complied as follows:
+Requires [Rust](https://www.rust-lang.org/tools/install).
+
+```bash
+cargo install --git https://github.com/andrewbudge/Liger
 ```
-# Download the file
-wget https://raw.githubusercontent.com/andrewbudge/Liger/refs/heads/main/liger.go
 
-# Compile it
-go build -o liger liger.go
+To update to the latest version:
 
-# Move to PATH (optional)
-sudo mv liger /usr/local/bin/
+```bash
+cargo install --force --git https://github.com/andrewbudge/Liger
 ```
+
+The previous Go version (v1) is preserved in the `v1-go/` directory.
 
 ## Usage
+
 ```bash
-liger [FLAGS] [TAXA LIST] [INPUT FASTA FILES] > [OUTPUT]
+liger [FLAGS] [INPUT FASTA FILES]
 ```
 
 ### Flags
-- `-f` Output format: `fasta` (default) or `nexus`
-- `-m` Character for missing data (default: `N`)
+- `-a, --alias` — alias list for smart matching (clean output names that map to messy input headers)
+- `-l, --log` — provenance TSV output file (required with `-a`)
+- `-f, --format` — output format: fasta (default), nexus (also accepts `n` or `nex`)
+- `-m, --missing` — override missing data character (default: auto per data type — N for DNA, X for amino acid, ? for mixed)
+- `-p, --partitions` — partition format: raxml (default, also used by IQ-TREE) or nexus
 
-### Input/Output
-- **Input**: Taxa list (one name per line) + pre-aligned gene files
-- **Output (FASTA mode)**: Supermatrix to stdout, NEXUS partitions to stderr
-- **Output (NEXUS mode)**: Complete NEXUS file to stdout (includes supermatrix + partitions)
-- **Missing taxa**: Automatically filled with specified missing character
+### Exact match — clean headers
 
-## How Matching Works
-
-Liger searches for your taxon name anywhere in the FASTA header.
-
-### Basic Example (FASTA output)
 ```bash
-$ cat COX1.fasta
->AB123.1 Mus mus COX1 gene, partial cds
-ATCGATCGATCG
->AB124.1 Rattus rat COX1 gene, partial cds
-GCTAGCTAGCTA
->AB125.1 Ovis sheep COX1 gene, partial cds
-CGATCGATCGAT
-
-$ cat ND2.fasta
->XM456.1 Mus mus ND2 gene, complete cds
-TACGTACGTACG
->XM457.1 Rattus rat ND2 gene, complete cds
-ATATATATATAT
->XM458.1 Ovis sheep ND2 gene, complete cds
-GCGCGCGCGCGC
-
-$ cat taxa.txt
-Mus mus
-Rattus rat
-Ovis sheep
-
-$ liger taxa.txt COX1.fasta ND2.fasta > matrix.fasta 2> parts.nex
-
-$ cat matrix.fasta
->Mus mus
-ATCGATCGATCGTACGTACGTACG
->Ovis sheep
-CGATCGATCGATGCGCGCGCGCGC
->Rattus rat
-GCTAGCTAGCTAATATATATATAT
-
-$ cat parts.nex
-#NEXUS
-begin sets;
-  charset COX1 = 1-12;
-  charset ND2 = 13-24;
-end;
+$ liger gene1.fasta gene2.fasta > supermatrix.fasta
+DNA, gene1.fasta = 1-500
+DNA, gene2.fasta = 501-1000
 ```
 
-### NEXUS Output Example
+### Smart match — messy headers with an alias list
+
 ```bash
-$ liger -f nexus taxa.txt COX1.fasta ND2.fasta > output.nex
+$ cat alias.txt
+Mus_musculus
+Rattus_rattus
+Xenopus_laevis
 
-$ cat output.nex
+$ liger -a alias.txt -l prov.tsv gene1.fasta gene2.fasta > supermatrix.fasta
+DNA, gene1.fasta = 1-4
+DNA, gene2.fasta = 5-8
+
+$ cat supermatrix.fasta
+>Mus_musculus
+ATCGATCG
+>Rattus_rattus
+ATCGNNNN
+>Xenopus_laevis
+NNNNATCG
+
+$ cat prov.tsv
+alias.txt	gene1.fasta	gene2.fasta
+Mus_musculus	AB123.1 Mus musculus gene1 cds	XM456.1 Mus musculus gene2 cds
+Rattus_rattus	AB124.1 Rattus rattus gene1 cds	MISSING
+Xenopus_laevis	MISSING	XM789.1 Xenopus laevis gene2 cds
+```
+
+### NEXUS output
+
+```bash
+$ liger -a alias.txt -l prov.tsv -f nexus gene1.fasta gene2.fasta
 #NEXUS
-
-BEGIN TAXA;
-    DIMENSIONS NTAX=3;
-    TAXLABELS
-        Mus mus
-        Ovis sheep
-        Rattus rat
-    ;
+BEGIN DATA;
+  DIMENSIONS NTAX=3 NCHAR=8;
+  FORMAT DATATYPE=DNA MISSING=N GAP=-;
+  MATRIX
+  Mus_musculus    ATCGATCG
+  Rattus_rattus   ATCGNNNN
+  Xenopus_laevis  NNNNATCG
+;
 END;
-
-BEGIN CHARACTERS;
-    DIMENSIONS NCHAR=24;
-    FORMAT DATATYPE=DNA MISSING=N GAP=-;
-    MATRIX
-        Mus mus     ATCGATCGATCGTACGTACGTACG
-        Ovis sheep  CGATCGATCGATGCGCGCGCGCGC
-        Rattus rat  GCTAGCTAGCTAATATATATATAT
-    ;
-END;
-
 BEGIN SETS;
-    CHARSET COX1 = 1-12;
-    CHARSET ND2 = 13-24;
+  CHARSET gene1.fasta = 1-4;
+  CHARSET gene2.fasta = 5-8;
 END;
 ```
 
-### Missing Data Example
+### Partition formats
+
+Partitions always go to stderr so they can be piped or redirected.
+
 ```bash
-$ cat COX1.fasta
->AB123.1 Mus mus COX1
-ATCGATCGATCG
->AB124.1 Rattus rat COX1
-GCTAGCTAGCTA
+# Default: RAxML/IQ-TREE format
+$ liger dna_gene.fasta protein_gene.fasta > matrix.fasta
+DNA, dna_gene.fasta = 1-500
+WAG, protein_gene.fasta = 501-700
 
-$ cat ND2.fasta
->XM456.1 Mus mus ND2
-TACGTACGTACG
-# Ovis sheep missing from ND2!
-
-$ cat taxa.txt
-Mus mus
-Rattus rat
-Ovis sheep
-
-$ liger taxa.txt COX1.fasta ND2.fasta 2>/dev/null
->Mus mus
-ATCGATCGATCGTACGTACGTACG
->Ovis sheep
-CGATCGATCGATNNNNNNNNNNNN
->Rattus rat
-GCTAGCTAGCTAATATATATATAT
+# NEXUS charset format
+$ liger -p nexus dna_gene.fasta protein_gene.fasta > matrix.fasta
+CHARSET dna_gene.fasta = 1-500;
+CHARSET protein_gene.fasta = 501-700;
 ```
 
-### Custom Missing Character
-```bash
-$ liger -m ? taxa.txt COX1.fasta ND2.fasta 2>/dev/null
->Mus mus
-ATCGATCGATCGTACGTACGTACG
->Ovis sheep
-CGATCGATCGAT????????????
->Rattus rat
-GCTAGCTAGCTAATATATATATAT
-```
+## Development Note
 
+Liger v2 is a rewrite in Rust of the original Go tool (v1). Development is assisted by Claude (Anthropic), which serves as a teaching aid and coding partner. The design, domain knowledge, and direction are the author's own.
+
+## Author
+
+Andrew Budge

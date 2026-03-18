@@ -1,0 +1,11 @@
+[package]
+name = "liger"
+version = "2.0.0"
+edition = "2024"
+description = "A fast, smart supermatrix concatenation tool for phylogenetics"
+license = "MIT"
+repository = "https://github.com/andrewbudge/Liger"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+libc = "0.2"
