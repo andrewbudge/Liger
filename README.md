@@ -1,6 +1,6 @@
-::: {align="center"}
-<img src="assets/liger_logo_test.svg" width="400"/>
-:::
+<div align="center">
+  <img src="assets/liger_logo_test.svg" width="400">
+</div>
 
 # Liger - a fast, smart supermatrix concatenation tool
 
