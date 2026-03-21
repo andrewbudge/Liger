@@ -9,3 +9,5 @@ repository = "https://github.com/andrewbudge/Liger"
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 libc = "0.2"
+rayon = "1"
+ahash = "0.8"

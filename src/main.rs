@@ -1,7 +1,8 @@
+use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use clap::Parser;
-use std::collections::{HashMap, HashSet};
+use rayon::prelude::*;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
 
 // Exit silently on broken pipe (e.g., piping to head/tail)
@@ -37,6 +38,10 @@ struct Args {
     /// Provenance TSV output file (required with -a)
     #[arg(short = 'l', long = "log")]
     pub log: Option<String>,
+
+    /// Number of threads (default: all available cores)
+    #[arg(short = 't', long, default_value_t = 0)]
+    pub threads: usize,
 }
 
 enum DataType {
@@ -69,12 +74,11 @@ fn parse_fasta(
 
     for line in reader.lines() {
         let line = line.map_err(|e| format!("Error reading file: {}", e))?;
-        let line = line.trim().to_string();
+        let line = line.trim();
 
         if line.starts_with('>') {
             if !current_header.is_empty() {
-                current_seq = current_seq.to_uppercase();
-                sequences.insert(current_header.clone(), current_seq.clone());
+                current_seq.make_ascii_uppercase();
                 if validate_equal {
                     match expected_length {
                         None => expected_length = Some(current_seq.len()),
@@ -88,16 +92,19 @@ fn parse_fasta(
                         }
                     }
                 }
+                sequences.insert(
+                    std::mem::take(&mut current_header),
+                    std::mem::take(&mut current_seq),
+                );
             }
             current_header = line[1..].to_string();
-            current_seq.clear();
         } else if !line.is_empty() {
-            current_seq.push_str(&line);
+            current_seq.push_str(line);
         }
     }
 
     if !current_header.is_empty() {
-        current_seq = current_seq.to_uppercase();
+        current_seq.make_ascii_uppercase();
         if validate_equal {
             if let Some(len) = expected_length {
                 if current_seq.len() != len {
@@ -168,26 +175,45 @@ fn main() {
 
     let args = Args::parse();
 
-    // Parse all gene files
-    let mut gene_data = Vec::new();
-    for file in &args.files {
-        let (sequences, length) = parse_fasta(file, true).expect("Failed to parse fasta file");
-        gene_data.push((file, sequences, length));
+    // Configure thread pool
+    if args.threads > 0 {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(args.threads)
+            .build_global()
+            .expect("Failed to set thread count");
     }
+
+    // Parse all gene files in parallel
+    let gene_data: Vec<_> = args
+        .files
+        .par_iter()
+        .map(|file| {
+            let (sequences, length) = parse_fasta(file, true).expect("Failed to parse fasta file");
+            (file, sequences, length)
+        })
+        .collect();
 
     let smart_matching = args.alias.is_some();
 
-    // Determine taxa list and build matched_genes
+    // Determine taxa list
     let taxa: Vec<String>;
-    let mut matched_genes: Vec<(&String, HashMap<String, (String, String)>, &usize)> = Vec::new();
+
+    // Smart matching needs an intermediate matched_genes structure;
+    // exact match can look up directly from gene_data.
+    let matched_genes: Option<Vec<(&String, HashMap<String, (String, String)>, &usize)>>;
 
     if let Some(ref taxa_file) = args.alias {
         // Smart matching mode: load taxa list, match by substring
         taxa = load_taxa_list(taxa_file).expect("Failed to load taxa list");
-        for (file, sequences, length) in &gene_data {
-            let matched = match_taxa(&taxa, sequences);
-            matched_genes.push((file, matched, length));
-        }
+        matched_genes = Some(
+            gene_data
+                .par_iter()
+                .map(|(file, sequences, length)| {
+                    let matched = match_taxa(&taxa, sequences);
+                    (*file, matched, length)
+                })
+                .collect(),
+        );
     } else {
         // Exact match mode: union of all headers across files becomes the taxa list
         let mut seen = HashSet::new();
@@ -200,24 +226,17 @@ fn main() {
             }
         }
         taxa = taxa_order;
-        // Direct lookup — header IS the taxon name, no matching needed
-        for (file, sequences, length) in &gene_data {
-            let mut matched = HashMap::new();
-            for (header, sequence) in sequences {
-                matched.insert(header.clone(), (header.clone(), sequence.clone()));
-            }
-            matched_genes.push((file, matched, length));
-        }
+        matched_genes = None;
     }
 
     // Detect data type per gene using first available sequence
-    let gene_types: Vec<DataType> = matched_genes
+    let gene_types: Vec<DataType> = gene_data
         .iter()
-        .map(|(_, matched, _)| {
-            matched
+        .map(|(_, sequences, _)| {
+            sequences
                 .values()
                 .next()
-                .map(|(_, seq)| detect_data_type(seq))
+                .map(|seq| detect_data_type(seq))
                 .unwrap_or(DataType::Dna)
         })
         .collect();
@@ -227,37 +246,68 @@ fn main() {
     let has_aa = gene_types.iter().any(|t| matches!(t, DataType::AminoAcid));
     let is_mixed = has_dna && has_aa;
 
-    // Build supermatrix: concatenate matched sequences per taxon, fill gaps with missing char
-    let mut supermatrix: HashMap<String, String> = HashMap::new();
-    for taxon in &taxa {
-        for (i, (_file, matched, length)) in matched_genes.iter().enumerate() {
-            let entry = supermatrix.entry(taxon.clone()).or_insert(String::new());
-            if matched.contains_key(taxon) {
-                entry.push_str(&matched[taxon].1);
-            } else {
-                let missing_char = match &args.missing {
-                    Some(m) => m.clone(),
-                    None => if is_mixed {
-                        "?".to_string()
+    // Pre-compute missing fill strings per gene
+    let missing_chars: Vec<String> = gene_types
+        .iter()
+        .zip(gene_data.iter())
+        .map(|(dtype, (_, _, length))| {
+            let ch = match &args.missing {
+                Some(m) => m.as_str(),
+                None => {
+                    if is_mixed {
+                        "?"
                     } else {
-                        match gene_types[i] {
-                            DataType::Dna => "N".to_string(),
-                            DataType::AminoAcid => "X".to_string(),
+                        match dtype {
+                            DataType::Dna => "N",
+                            DataType::AminoAcid => "X",
                         }
-                    },
-                };
-                entry.push_str(&missing_char.repeat(**length));
-            }
-        }
-    }
+                    }
+                }
+            };
+            ch.repeat(*length)
+        })
+        .collect();
+
+    // Build supermatrix in parallel: one entry per taxon, indexed by taxa order
+    let supermatrix: Vec<String> = if let Some(ref mg) = matched_genes {
+        // Smart matching: look up via matched_genes
+        taxa.par_iter()
+            .map(|taxon| {
+                let mut seq = String::new();
+                for (i, (_file, matched, _length)) in mg.iter().enumerate() {
+                    if let Some((_, s)) = matched.get(taxon) {
+                        seq.push_str(s);
+                    } else {
+                        seq.push_str(&missing_chars[i]);
+                    }
+                }
+                seq
+            })
+            .collect()
+    } else {
+        // Exact match: look up directly from gene_data — no clones needed
+        taxa.par_iter()
+            .map(|taxon| {
+                let mut seq = String::new();
+                for (i, (_file, sequences, _length)) in gene_data.iter().enumerate() {
+                    if let Some(s) = sequences.get(taxon) {
+                        seq.push_str(s);
+                    } else {
+                        seq.push_str(&missing_chars[i]);
+                    }
+                }
+                seq
+            })
+            .collect()
+    };
 
     // Build partition boundaries with data type
     let mut partitions = Vec::new();
     let mut position = 1;
-    for (i, (file, _matched, length)) in matched_genes.iter().enumerate() {
+    for (i, (file, _sequences, length)) in gene_data.iter().enumerate() {
         let name = Path::new(file).file_name().unwrap().to_str().unwrap();
-        partitions.push((name.to_string(), position, position + *length - 1, &gene_types[i]));
-        position = position + *length;
+        partitions.push((name.to_string(), position, position + length - 1, &gene_types[i]));
+        position = position + length;
     }
     let total_length = position - 1;
 
@@ -278,37 +328,48 @@ fn main() {
         },
     };
 
+    // Buffered output
+    let stdout = std::io::stdout();
+    let mut out = BufWriter::new(stdout.lock());
+
     let fmt = args.format.to_lowercase();
     if fmt == "nexus" || fmt == "n" || fmt == "nex" {
         // NEXUS: complete file to stdout (data + partitions in one)
-        println!("#NEXUS");
-        println!("BEGIN DATA;");
-        println!("  DIMENSIONS NTAX={} NCHAR={};", taxa.len(), total_length);
-        println!("  FORMAT DATATYPE={} MISSING={} GAP=-;", nexus_datatype, nexus_missing);
-        println!("  MATRIX");
-        for taxon in &taxa {
-            println!("  {}    {}", taxon, supermatrix[taxon]);
+        writeln!(out, "#NEXUS").unwrap();
+        writeln!(out, "BEGIN DATA;").unwrap();
+        writeln!(out, "  DIMENSIONS NTAX={} NCHAR={};", taxa.len(), total_length).unwrap();
+        writeln!(
+            out,
+            "  FORMAT DATATYPE={} MISSING={} GAP=-;",
+            nexus_datatype, nexus_missing
+        )
+        .unwrap();
+        writeln!(out, "  MATRIX").unwrap();
+        for (i, taxon) in taxa.iter().enumerate() {
+            writeln!(out, "  {}    {}", taxon, supermatrix[i]).unwrap();
         }
-        println!(";");
-        println!("END;");
-        println!("BEGIN SETS;");
+        writeln!(out, ";").unwrap();
+        writeln!(out, "END;").unwrap();
+        writeln!(out, "BEGIN SETS;").unwrap();
         for (name, start, end, _) in &partitions {
-            println!("  CHARSET {} = {}-{};", name, start, end);
+            writeln!(out, "  CHARSET {} = {}-{};", name, start, end).unwrap();
         }
-        println!("END;");
+        writeln!(out, "END;").unwrap();
     } else {
         // FASTA: supermatrix to stdout
-        for taxon in &taxa {
-            println!(">{}", taxon);
-            println!("{}", supermatrix[taxon]);
+        for (i, taxon) in taxa.iter().enumerate() {
+            writeln!(out, ">{}", taxon).unwrap();
+            writeln!(out, "{}", supermatrix[i]).unwrap();
         }
     }
 
     // Partitions to stderr
+    let stderr = std::io::stderr();
+    let mut err = BufWriter::new(stderr.lock());
     let part_fmt = args.partitions.to_lowercase();
     if part_fmt == "nexus" || part_fmt == "n" || part_fmt == "nex" {
         for (name, start, end, _) in &partitions {
-            eprintln!("CHARSET {} = {}-{};", name, start, end);
+            writeln!(err, "CHARSET {} = {}-{};", name, start, end).unwrap();
         }
     } else {
         // RAxML/IQ-TREE format (default)
@@ -317,17 +378,18 @@ fn main() {
                 DataType::Dna => "DNA",
                 DataType::AminoAcid => "WAG",
             };
-            eprintln!("{}, {} = {}-{}", model, name, start, end);
+            writeln!(err, "{}, {} = {}-{}", model, name, start, end).unwrap();
         }
     }
 
     // Write provenance TSV (only in smart matching mode, -l is required with -a)
     if smart_matching {
+        let mg = matched_genes.as_ref().unwrap();
         let log_path = args.log.as_ref().unwrap();
         let taxa_file = args.alias.as_ref().unwrap();
         let mut log_file = File::create(log_path).expect("Failed to create provenance log file");
         // Header row: taxa list filename, then each gene filename
-        let gene_names: Vec<String> = matched_genes
+        let gene_names: Vec<String> = mg
             .iter()
             .map(|(file, _, _)| {
                 Path::new(file)
@@ -343,7 +405,7 @@ fn main() {
         // One row per taxon: taxon name, then matched header or MISSING
         for taxon in &taxa {
             let mut row = vec![taxon.clone()];
-            for (_file, matched, _length) in &matched_genes {
+            for (_file, matched, _length) in mg {
                 if matched.contains_key(taxon) {
                     row.push(matched[taxon].0.clone());
                 } else {
